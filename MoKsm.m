@@ -84,6 +84,7 @@ classdef MoKsm
             p.addOptional('Verbose', false);
             p.addOptional('CovRidge', 1.5);
             p.addOptional('ClusterCost', 0.0025);
+            p.addOptional('Debug', false);
             p.parse(varargin{:});
             self.params = p.Results;
         end
@@ -119,7 +120,7 @@ classdef MoKsm
             self.train = train;
             self.test = test;
             if ~isempty(Y)
-                [~, self.blockId] = histc(t, self.mu_t);
+                [~, self.blockId] = histc(t, self.mu_t); % assign time to blocks
                 self.spikeId = arrayfun(@(x) find(self.blockId(self.train) == x), 1 : numel(mu_t) - 1, 'UniformOutput', false);
                 self = self.updateCache();
             end
@@ -225,8 +226,9 @@ classdef MoKsm
             [mu, C, Cmu, priors, df] = partial.expand();
             D = size(mu, 1);
             deltaMu  = chol(C)' * randn(D, 1) * 0.2;
-            mu(:, :, 1) = bsxfun(@plus, mu(:, :, 1), deltaMu);
-            mu(:, :, 2) = bsxfun(@minus, mu(:, :, 1), deltaMu);
+            temp = mu(:,:,1);
+            mu(:, :, 1) = bsxfun(@plus, temp, deltaMu);
+            mu(:, :, 2) = bsxfun(@minus, temp, deltaMu);
             C(:, :, 1) = det(C(:, :, 1))^(1 / D) * eye(D);
             C(:, :, 2) = C(:, :, 1);
             priors(1 : 2) = priors(1) / 2;
@@ -387,9 +389,9 @@ classdef MoKsm
             ttrain = self.t(self.train);
             if nargin < 2
                 if size(Ytrain, 1) > 3
-                    d = [7 1 4 10]; % tetrodes
+                    d = [7 1 4 10]; % tetrodes - corresponds to first PC of each electrode
                 else
-                    d = 1 : 3;      % single electrodes
+                    d = 1 : 3;      % single electrodes - first three features
                 end
             end
             d(d > size(Ytrain, 1)) = [];
@@ -490,9 +492,9 @@ classdef MoKsm
             
             [mu, C, Cmu, priors, df] = self.expand(); %#ok<*PROP>
             Ytrain = self.Y(:, self.train);
-            N = size(Ytrain, 2);
+            N = size(Ytrain, 2); 
             [D, T, K] = size(mu);
-            Cf = zeros(D, D, T);
+            Cf = zeros(D, D, T); 
                 
             % Initial E step
             like = zeros(K, N);
@@ -503,6 +505,12 @@ classdef MoKsm
             p = sum(like, 1);
             post = bsxfun(@rdivide, like, p);
             post(:, p == 0) = 0;
+            
+            % show the clustering at the beginning
+            if isfield(self.params, 'Debug') && self.params.Debug
+                    plot(self.collect(mu, C, Cmu, priors, df));
+                    pause();
+            end
             
             % Perform EM iterations until convergence or maxIter
             iter = 0;
@@ -552,6 +560,8 @@ classdef MoKsm
                     C(:, :, k) = Ck;
                 end
                 
+                
+                
                 % update class priors
                 priors = sum(post, 2) / N;
                 
@@ -584,6 +594,15 @@ classdef MoKsm
                 if iter == 1
                     logLikeBase = self.logLike(end);
                 end
+                
+                % For debuggin purpose: plot the progress of estimation
+                % Edgar Walker - Jan 04, 2014
+                
+                if isfield(self.params, 'Debug') && self.params.Debug
+                    plot(self.collect(mu, C, Cmu, priors, df));
+                    pause();
+                end
+                    
             end
             
             self = self.collect(mu, C, Cmu, priors, df);
